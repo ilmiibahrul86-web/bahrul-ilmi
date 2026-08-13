@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>BAHRUL & RIKA</title>
+
+    <style>
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+
+            background:
+                radial-gradient(circle, #4a0920, #100006);
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            font-family: Arial, sans-serif;
+        }
+
+
+        /* =========================
+           HALAMAN PASSWORD
+        ========================= */
+
+        #login {
+            text-align: center;
+            color: white;
+        }
+
+        #login h1 {
+            font-size: 35px;
+            margin-bottom: 25px;
+        }
+
+        #password {
+            width: 270px;
+            padding: 14px;
+
+            border: none;
+            border-radius: 25px;
+
+            outline: none;
+
+            text-align: center;
+
+            font-size: 17px;
+        }
+
+        #tombol {
+            margin-top: 15px;
+
+            padding: 12px 35px;
+
+            border: none;
+            border-radius: 25px;
+
+            background: #ff4081;
+
+            color: white;
+
+            font-size: 16px;
+
+            cursor: pointer;
+
+            box-shadow: 0 0 15px #ff4081;
+        }
+
+        #tombol:hover {
+            background: #ff1744;
+        }
+
+        #pesan {
+            margin-top: 15px;
+            color: #ffb3c6;
+        }
+
+
+        /* =========================
+           ANIMASI LOVE
+        ========================= */
+
+        #animasi {
+            display: none;
+
+            position: relative;
+
+            width: 600px;
+            height: 600px;
+        }
+
+
+        .teks {
+            position: absolute;
+
+            font-size: 22px;
+
+            font-weight: bold;
+
+            color: #ff5c93;
+
+            text-shadow:
+                0 0 5px white,
+                0 0 10px #ff4081,
+                0 0 20px #ff1744;
+
+            white-space: nowrap;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+    <!-- PASSWORD -->
+
+    <div id="login">
+
+        <h1>❤️ RIKA HANIFATUL ROFIYAH❤️</h1>
+
+        <input
+            type="password"
+            id="password"
+            placeholder="Masukkan password"
+        >
+
+        <br>
+
+        <button id="tombol" onclick="cekPassword()">
+            Buka ❤️
+        </button>
+
+        <p id="pesan"></p>
+
+    </div>
+
+
+
+    <!-- ANIMASI -->
+
+    <div id="animasi"></div>
+
+
+
+    <script>
+
+        // =========================
+        // PASSWORD
+        // =========================
+
+        const passwordBenar = "21626";
+
+
+        function cekPassword() {
+
+            const password =
+                document.getElementById("password").value;
+
+            const pesan =
+                document.getElementById("pesan");
+
+
+            if (password === passwordBenar) {
+
+                // Hilangkan password
+                document.getElementById("login").style.display =
+                    "none";
+
+
+                // Tampilkan animasi
+                document.getElementById("animasi").style.display =
+                    "block";
+
+
+                mulaiAnimasi();
+
+            }
+
+            else {
+
+                pesan.innerHTML =
+                    "❌ Password salah! Coba lagi.";
+
+            }
+
+        }
+
+
+
+        // =========================
+        // ANIMASI LOVE
+        // =========================
+
+        function mulaiAnimasi() {
+
+            const animasi =
+                document.getElementById("animasi");
+
+
+            const jumlah = 70;
+
+            let posisi = 0;
+
+
+            // Membuat tulisan LOVE
+            for (let i = 0; i < jumlah; i++) {
+
+                const teks =
+                    document.createElement("div");
+
+                teks.className = "teks";
+
+                teks.innerHTML =
+                    "LOVE ❤️";
+
+                animasi.appendChild(teks);
+
+            }
+
+
+            function gerak() {
+
+                const semua =
+                    document.querySelectorAll(".teks");
+
+
+                semua.forEach((teks, i) => {
+
+                    const t =
+                        (Math.PI * 2 *
+                        ((i + posisi) % jumlah))
+                        / jumlah;
+
+
+                    // Rumus bentuk hati
+
+                    let x =
+                        16 *
+                        Math.pow(Math.sin(t), 3);
+
+
+                    let y =
+                        -(13 * Math.cos(t)
+                        - 5 * Math.cos(2 * t)
+                        - 2 * Math.cos(3 * t)
+                        - Math.cos(4 * t));
+
+
+                    // Ukuran hati
+
+                    x *= 15;
+                    y *= 15;
+
+
+                    // Posisi hati
+
+                    teks.style.left =
+                        (300 + x) + "px";
+
+                    teks.style.top =
+                        (300 + y) + "px";
+
+                });
+
+
+                // Kecepatan tulisan
+
+                posisi += 0.12;
+
+
+                requestAnimationFrame(gerak);
+
+            }
+
+
+            gerak();
+
+        }
+
+    </script>
+
+</body>
+
+</html>
