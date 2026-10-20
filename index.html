@@ -1,2041 +1,371 @@
-```html
+
+<?php
+session_start();
+
+$pdo = null;
+try {
+    $pdo = new PDO(
+        'mysql:host=localhost;dbname=bahrulchat_dark;charset=utf8mb4',
+        'root',
+        '',
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+    );
+} catch (PDOException $e) {
+    $dbError = 'Database belum siap. Buat database bahrulchat_dark terlebih dahulu.';
+}
+
+function out($data) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function memberCheck($pdo, $gid, $uid) {
+    $s = $pdo->prepare(
+        'SELECT 1 FROM group_members WHERE group_id=? AND user_id=?'
+    );
+    $s->execute([$gid, $uid]);
+    return (bool)$s->fetchColumn();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!$pdo) out(['ok'=>false,'error'=>$dbError ?? 'Database tidak tersedia.']);
+
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'login') {
+        $name = trim(mb_substr($_POST['name'] ?? '', 0, 30));
+        if ($name === '') out(['ok'=>false,'error'=>'Nama wajib diisi.']);
+
+        $s = $pdo->prepare('INSERT INTO users(name) VALUES(?)');
+        $s->execute([$name]);
+
+        $_SESSION['uid'] = (int)$pdo->lastInsertId();
+        $_SESSION['uname'] = $name;
+        out(['ok'=>true,'name'=>$name]);
+    }
+
+    if ($action === 'me') {
+        out(['ok'=>true,'name'=>$_SESSION['uname'] ?? null]);
+    }
+
+    if ($action === 'logout') {
+        $_SESSION = [];
+        session_destroy();
+        out(['ok'=>true]);
+    }
+
+    if (empty($_SESSION['uid'])) {
+        out(['ok'=>false,'error'=>'Silakan masuk terlebih dahulu.']);
+    }
+
+    $uid = (int)$_SESSION['uid'];
+
+    if ($action === 'groups') {
+        $s = $pdo->prepare(
+            'SELECT g.* FROM chat_groups g
+             JOIN group_members gm ON gm.group_id=g.id
+             WHERE gm.user_id=? ORDER BY g.id DESC'
+        );
+        $s->execute([$uid]);
+        out(['ok'=>true,'groups'=>$s->fetchAll()]);
+    }
+
+    if ($action === 'create') {
+        $name = trim(mb_substr($_POST['name'] ?? '', 0, 50));
+        if ($name === '') out(['ok'=>false,'error'=>'Nama grup wajib diisi.']);
+
+        do {
+            $code = strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+            $s = $pdo->prepare('SELECT id FROM chat_groups WHERE code=?');
+            $s->execute([$code]);
+        } while ($s->fetch());
+
+        $pdo->beginTransaction();
+        $s = $pdo->prepare(
+            'INSERT INTO chat_groups(name,code,owner_id) VALUES(?,?,?)'
+        );
+        $s->execute([$name,$code,$uid]);
+        $gid = (int)$pdo->lastInsertId();
+
+        $s = $pdo->prepare(
+            'INSERT INTO group_members(group_id,user_id) VALUES(?,?)'
+        );
+        $s->execute([$gid,$uid]);
+        $pdo->commit();
+
+        out(['ok'=>true,'code'=>$code]);
+    }
+
+    if ($action === 'join') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        $s = $pdo->prepare('SELECT id FROM chat_groups WHERE code=?');
+        $s->execute([$code]);
+        $g = $s->fetch();
+
+        if (!$g) out(['ok'=>false,'error'=>'Kode grup tidak ditemukan.']);
+
+        $s = $pdo->prepare(
+            'INSERT IGNORE INTO group_members(group_id,user_id) VALUES(?,?)'
+        );
+        $s->execute([(int)$g['id'],$uid]);
+        out(['ok'=>true]);
+    }
+
+    if ($action === 'messages') {
+        $gid = (int)($_POST['group_id'] ?? 0);
+        if (!memberCheck($pdo,$gid,$uid)) {
+            out(['ok'=>false,'error'=>'Kamu bukan anggota grup.']);
+        }
+
+        $s = $pdo->prepare(
+            'SELECT m.id,m.user_id,m.message,u.name,
+             DATE_FORMAT(m.created_at,"%H:%i") AS waktu
+             FROM messages m JOIN users u ON u.id=m.user_id
+             WHERE m.group_id=? ORDER BY m.id DESC LIMIT 100'
+        );
+        $s->execute([$gid]);
+        out(['ok'=>true,'messages'=>array_reverse($s->fetchAll())]);
+    }
+
+    if ($action === 'send') {
+        $gid = (int)($_POST['group_id'] ?? 0);
+        $message = trim(mb_substr($_POST['message'] ?? '',0,3000));
+
+        if (!memberCheck($pdo,$gid,$uid)) {
+            out(['ok'=>false,'error'=>'Kamu bukan anggota grup.']);
+        }
+        if ($message === '') out(['ok'=>false,'error'=>'Pesan kosong.']);
+
+        $s = $pdo->prepare(
+            'INSERT INTO messages(group_id,user_id,message) VALUES(?,?,?)'
+        );
+        $s->execute([$gid,$uid,$message]);
+        out(['ok'=>true]);
+    }
+
+    out(['ok'=>false,'error'=>'Perintah tidak dikenal.']);
+}
+?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Untuk Kamu "si kecill gemaccc" ❤️</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Great+Vibes&family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BahrulChat | Dark Premium</title>
 <style>
-
-/* =========================================================
-   RESET
-========================================================= */
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-html {
-    scroll-behavior: smooth;
-}
-
-body {
-    min-height: 100vh;
-    overflow-x: hidden;
-
-    font-family: "Montserrat", sans-serif;
-
-    color: white;
-
-    background:
-        radial-gradient(
-            circle at 15% 15%,
-            rgba(255, 82, 139, .25),
-            transparent 30%
-        ),
-        radial-gradient(
-            circle at 85% 20%,
-            rgba(173, 88, 255, .20),
-            transparent 30%
-        ),
-        radial-gradient(
-            circle at 50% 100%,
-            rgba(255, 45, 111, .18),
-            transparent 35%
-        ),
-        linear-gradient(
-            135deg,
-            #08030c 0%,
-            #170714 35%,
-            #25091d 65%,
-            #08030d 100%
-        );
-
-    position: relative;
-}
-
-/* =========================================================
-   BACKGROUND
-========================================================= */
-
-body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-
-    pointer-events: none;
-
-    background:
-        linear-gradient(
-            rgba(255,255,255,.018) 1px,
-            transparent 1px
-        ),
-        linear-gradient(
-            90deg,
-            rgba(255,255,255,.018) 1px,
-            transparent 1px
-        );
-
-    background-size: 60px 60px;
-
-    mask-image: linear-gradient(
-        to bottom,
-        black,
-        transparent
-    );
-
-    z-index: 0;
-}
-
-.glow {
-    position: fixed;
-    border-radius: 50%;
-    filter: blur(90px);
-    pointer-events: none;
-    opacity: .35;
-    z-index: 0;
-}
-
-.glow.one {
-    width: 300px;
-    height: 300px;
-    background: #ff3278;
-    top: -100px;
-    left: -100px;
-}
-
-.glow.two {
-    width: 350px;
-    height: 350px;
-    background: #8c3dff;
-    right: -150px;
-    top: 30%;
-}
-
-.glow.three {
-    width: 280px;
-    height: 280px;
-    background: #ff4d9a;
-    bottom: -120px;
-    left: 30%;
-}
-
-/* =========================================================
-   STARS
-========================================================= */
-
-.stars {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 0;
-}
-
-.star {
-    position: absolute;
-    width: 2px;
-    height: 2px;
-
-    background: white;
-
-    border-radius: 50%;
-
-    box-shadow:
-        0 0 5px white,
-        0 0 10px rgba(255,255,255,.7);
-
-    animation: twinkle 3s infinite ease-in-out;
-}
-
-@keyframes twinkle {
-
-    0%,100% {
-        opacity: .15;
-        transform: scale(.7);
-    }
-
-    50% {
-        opacity: 1;
-        transform: scale(1.4);
-    }
-
-}
-
-/* =========================================================
-   TOP BAR
-========================================================= */
-
-.topbar {
-    width: min(1150px, 92%);
-    margin: auto;
-
-    padding: 25px 0;
-
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-
-    position: relative;
-    z-index: 5;
-}
-
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-
-    font-weight: 600;
-    letter-spacing: 1px;
-}
-
-.logo-heart {
-    width: 38px;
-    height: 38px;
-
-    display: grid;
-    place-items: center;
-
-    border-radius: 50%;
-
-    background:
-        linear-gradient(
-            135deg,
-            #ff477e,
-            #9b3cff
-        );
-
-    box-shadow:
-        0 0 25px rgba(255,72,126,.35);
-
-    animation: heartbeat 2s infinite;
-}
-
-@keyframes heartbeat {
-
-    0%,100% {
-        transform: scale(1);
-    }
-
-    10% {
-        transform: scale(1.12);
-    }
-
-    20% {
-        transform: scale(1);
-    }
-
-    30% {
-        transform: scale(1.08);
-    }
-
-}
-
-/* =========================================================
-   MUSIC BUTTON
-========================================================= */
-
-.music-btn {
-    width: 45px;
-    height: 45px;
-
-    border: 1px solid rgba(255,255,255,.15);
-
-    border-radius: 50%;
-
-    background: rgba(255,255,255,.06);
-
-    backdrop-filter: blur(15px);
-
-    color: white;
-
-    cursor: pointer;
-
-    font-size: 18px;
-
-    transition: .3s;
-}
-
-.music-btn:hover {
-    transform: scale(1.1);
-
-    background: rgba(255,255,255,.12);
-
-    box-shadow:
-        0 0 25px rgba(255,80,140,.35);
-}
-
-/* =========================================================
-   HERO
-========================================================= */
-
-.hero {
-    min-height: 90vh;
-
-    display: flex;
-    flex-direction: column;
-
-    align-items: center;
-    justify-content: center;
-
-    text-align: center;
-
-    padding: 40px 20px 100px;
-
-    position: relative;
-    z-index: 2;
-}
-
-.eyebrow {
-    color: #ff9fbe;
-
-    font-size: 11px;
-
-    letter-spacing: 5px;
-
-    text-transform: uppercase;
-
-    margin-bottom: 15px;
-}
-
-.hero h1 {
-    font-family: "Great Vibes", cursive;
-
-    font-size: clamp(
-        65px,
-        12vw,
-        125px
-    );
-
-    font-weight: 400;
-
-    line-height: .95;
-
-    background:
-        linear-gradient(
-            90deg,
-            #fff,
-            #ffb7d0,
-            #fff
-        );
-
-    -webkit-background-clip: text;
-    background-clip: text;
-
-    color: transparent;
-
-    text-shadow:
-        0 0 35px rgba(255,100,160,.25);
-
-    margin-bottom: 15px;
-}
-
-.hero-subtitle {
-    max-width: 620px;
-
-    color: #dcbac8;
-
-    font-size: 14px;
-
-    line-height: 1.9;
-
-    font-weight: 300;
-}
-
-/* =========================================================
-   DATE SELECTOR
-========================================================= */
-
-.date-panel {
-    margin-top: 35px;
-
-    width: min(600px, 95%);
-
-    padding: 8px;
-
-    border-radius: 22px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,.10),
-            rgba(255,255,255,.03)
-        );
-
-    border: 1px solid rgba(255,255,255,.12);
-
-    box-shadow:
-        0 25px 80px rgba(0,0,0,.35);
-
-    backdrop-filter: blur(25px);
-
-    display: flex;
-    gap: 8px;
-}
-
-.date-panel input {
-    flex: 1;
-
-    min-width: 0;
-
-    border: none;
-
-    outline: none;
-
-    background: transparent;
-
-    color: white;
-
-    padding: 15px 18px;
-
-    font-family: inherit;
-
-    font-size: 14px;
-}
-
-.date-panel input::-webkit-calendar-picker-indicator {
-    filter: invert(1);
-    cursor: pointer;
-}
-
-.open-btn {
-    border: none;
-
-    border-radius: 17px;
-
-    padding: 0 25px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #ff4c83,
-            #9d3bdb
-        );
-
-    color: white;
-
-    font-family: inherit;
-
-    font-weight: 600;
-
-    cursor: pointer;
-
-    transition: .3s;
-
-    box-shadow:
-        0 8px 30px rgba(255,66,128,.25);
-}
-
-.open-btn:hover {
-    transform: translateY(-2px);
-
-    box-shadow:
-        0 12px 35px rgba(255,66,128,.4);
-}
-
-/* =========================================================
-   SCROLL INDICATOR
-========================================================= */
-
-.scroll {
-    margin-top: 45px;
-
-    font-size: 10px;
-
-    letter-spacing: 3px;
-
-    color: #a98a98;
-
-    text-transform: uppercase;
-
-    animation: scrollFloat 2s infinite;
-}
-
-@keyframes scrollFloat {
-
-    0%,100% {
-        transform: translateY(0);
-        opacity: .5;
-    }
-
-    50% {
-        transform: translateY(8px);
-        opacity: 1;
-    }
-
-}
-
-/* =========================================================
-   LETTER SECTION
-========================================================= */
-
-.letter-section {
-    width: min(1100px, 94%);
-
-    margin: 0 auto 120px;
-
-    position: relative;
-
-    z-index: 3;
-}
-
-.section-title {
-    text-align: center;
-
-    margin-bottom: 40px;
-}
-
-.section-title small {
-    color: #ff87ad;
-
-    letter-spacing: 4px;
-
-    font-size: 10px;
-
-    text-transform: uppercase;
-}
-
-.section-title h2 {
-    font-family: "Cormorant Garamond", serif;
-
-    font-size: clamp(
-        38px,
-        6vw,
-        65px
-    );
-
-    font-weight: 500;
-
-    margin-top: 5px;
-}
-
-/* =========================================================
-   ENVELOPE STAGE
-========================================================= */
-
-.envelope-stage {
-    min-height: 650px;
-
-    display: flex;
-
-    align-items: center;
-
-    justify-content: center;
-
-    perspective: 1500px;
-
-    position: relative;
-}
-
-/* FLOOR GLOW */
-
-.floor-glow {
-    position: absolute;
-
-    width: 500px;
-    height: 130px;
-
-    background: #ff347b;
-
-    filter: blur(70px);
-
-    opacity: .12;
-
-    bottom: 80px;
-
-    border-radius: 50%;
-}
-
-/* =========================================================
-   ENVELOPE
-========================================================= */
-
-.envelope {
-    width: min(700px, 88vw);
-
-    height: 440px;
-
-    position: relative;
-
-    transform-style: preserve-3d;
-
-    transition:
-        transform 1.2s cubic-bezier(.2,.8,.2,1);
-
-    filter:
-        drop-shadow(
-            0 35px 45px rgba(0,0,0,.45)
-        );
-}
-
-/* BASE */
-
-.envelope-body {
-    position: absolute;
-
-    inset: 0;
-
-    border-radius: 20px;
-
-    background:
-        linear-gradient(
-            145deg,
-            #ff6897,
-            #c52f69 55%,
-            #8c214f
-        );
-
-    overflow: hidden;
-
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.35),
-        inset 0 -20px 50px rgba(0,0,0,.15);
-}
-
-/* TEXTURE */
-
-.envelope-body::after {
-    content: "";
-
-    position: absolute;
-
-    inset: 0;
-
-    opacity: .12;
-
-    background:
-        radial-gradient(
-            circle,
-            white 1px,
-            transparent 1px
-        );
-
-    background-size: 12px 12px;
-}
-
-/* FRONT TRIANGLES */
-
-.envelope-left,
-.envelope-right,
-.envelope-bottom {
-    position: absolute;
-
-    z-index: 4;
-
-    pointer-events: none;
-}
-
-.envelope-left {
-    inset: 0;
-
-    background:
-        linear-gradient(
-            35deg,
-            transparent 49%,
-            rgba(0,0,0,.13) 50%,
-            transparent 51%
-        );
-}
-
-.envelope-right {
-    inset: 0;
-
-    background:
-        linear-gradient(
-            -35deg,
-            transparent 49%,
-            rgba(0,0,0,.13) 50%,
-            transparent 51%
-        );
-}
-
-.envelope-bottom {
-    left: 0;
-    right: 0;
-    bottom: 0;
-
-    height: 58%;
-
-    background:
-        linear-gradient(
-            145deg,
-            rgba(255,255,255,.12),
-            transparent 55%
-        );
-
-    clip-path:
-        polygon(
-            0 100%,
-            50% 0,
-            100% 100%
-        );
-}
-
-/* =========================================================
-   PAPER
-========================================================= */
-
-.paper {
-    position: absolute;
-
-    width: 86%;
-
-    height: 400px;
-
-    left: 7%;
-
-    top: 15px;
-
-    padding: 42px 45px;
-
-    border-radius: 12px;
-
-    background:
-        linear-gradient(
-            145deg,
-            #fffdfd,
-            #fff4f8
-        );
-
-    color: #552238;
-
-    box-shadow:
-        0 15px 50px rgba(0,0,0,.28);
-
-    z-index: 2;
-
-    transform:
-        translateY(30px)
-        translateZ(-10px);
-
-    opacity: .35;
-
-    transition:
-        transform 1.3s cubic-bezier(.2,.8,.2,1),
-        opacity .8s ease;
-
-    overflow: auto;
-}
-
-.paper::-webkit-scrollbar {
-    width: 4px;
-}
-
-.paper::-webkit-scrollbar-thumb {
-    background: #ef78a0;
-    border-radius: 10px;
-}
-
-.paper::before {
-    content: "";
-
-    position: absolute;
-
-    inset: 15px;
-
-    border:
-
-        1px solid
-
-        rgba(190,65,108,.16);
-
-    border-radius: 8px;
-
-    pointer-events: none;
-}
-
-.paper h2 {
-    position: relative;
-
-    font-family:
-        "Great Vibes",
-        cursive;
-
-    color: #c82e68;
-
-    font-size: clamp(
-        42px,
-        6vw,
-        62px
-    );
-
-    font-weight: 400;
-
-    margin-bottom: 5px;
-}
-
-.paper-date {
-    position: relative;
-
-    color: #b17a91;
-
-    font-size: 11px;
-
-    letter-spacing: 2px;
-
-    text-transform: uppercase;
-
-    margin-bottom: 25px;
-}
-
-.paper-message {
-    position: relative;
-
-    font-family:
-        "Cormorant Garamond",
-        serif;
-
-    font-size: clamp(
-        20px,
-        3vw,
-        25px
-    );
-
-    line-height: 1.65;
-
-    color: #5d3346;
-}
-
-/* =========================================================
-   FLAP
-========================================================= */
-
-.flap {
-    position: absolute;
-
-    top: 0;
-    left: 0;
-
-    width: 100%;
-    height: 55%;
-
-    background:
-        linear-gradient(
-            145deg,
-            #ff88ad,
-            #db3d73
-        );
-
-    clip-path:
-        polygon(
-            0 0,
-            100% 0,
-            50% 100%
-        );
-
-    transform-origin: top center;
-
-    z-index: 6;
-
-    transition:
-        transform 1.2s cubic-bezier(.2,.8,.2,1);
-
-    backface-visibility: hidden;
-
-    box-shadow:
-        0 10px 30px rgba(0,0,0,.15);
-}
-
-.flap::after {
-    content: "♥";
-
-    position: absolute;
-
-    left: 50%;
-    top: 35%;
-
-    transform: translate(-50%,-50%);
-
-    font-size: 50px;
-
-    color: rgba(255,255,255,.85);
-
-    text-shadow:
-        0 5px 20px rgba(0,0,0,.15);
-}
-
-/* =========================================================
-   OPEN STATE
-========================================================= */
-
-.envelope.open .flap {
-    transform:
-        rotateX(180deg);
-}
-
-.envelope.open .paper {
-    transform:
-        translateY(-245px)
-        translateZ(80px);
-
-    opacity: 1;
-}
-
-.envelope.open {
-    transform:
-        translateY(170px)
-        rotateX(2deg);
-}
-
-/* =========================================================
-   CONTROLS
-========================================================= */
-
-.controls {
-    display: flex;
-
-    justify-content: center;
-
-    gap: 12px;
-
-    flex-wrap: wrap;
-
-    margin-top: 10px;
-}
-
-.control-btn {
-    border: 1px solid rgba(255,255,255,.14);
-
-    background:
-        rgba(255,255,255,.055);
-
-    color: white;
-
-    padding: 13px 22px;
-
-    border-radius: 50px;
-
-    font-family: inherit;
-
-    cursor: pointer;
-
-    backdrop-filter: blur(15px);
-
-    transition: .3s;
-}
-
-.control-btn:hover {
-    background:
-        rgba(255,255,255,.11);
-
-    transform:
-        translateY(-3px);
-
-    box-shadow:
-        0 10px 30px rgba(0,0,0,.2);
-}
-
-/* =========================================================
-   MESSAGE CARD
-========================================================= */
-
-.quote-section {
-    width: min(900px, 92%);
-
-    margin:
-        0 auto 120px;
-
-    text-align: center;
-
-    position: relative;
-
-    z-index: 2;
-}
-
-.quote-card {
-    padding: 45px 35px;
-
-    border-radius: 30px;
-
-    background:
-        linear-gradient(
-            135deg,
-            rgba(255,255,255,.075),
-            rgba(255,255,255,.025)
-        );
-
-    border:
-        1px solid rgba(255,255,255,.10);
-
-    backdrop-filter: blur(20px);
-
-    box-shadow:
-        0 25px 80px rgba(0,0,0,.25);
-}
-
-.quote-card span {
-    font-size: 35px;
-
-    color: #ff6c9c;
-}
-
-.quote-card p {
-    font-family:
-        "Cormorant Garamond",
-        serif;
-
-    font-size: clamp(
-        24px,
-        4vw,
-        35px
-    );
-
-    line-height: 1.5;
-
-    color: #f5dce7;
-
-    margin-top: 15px;
-}
-
-/* =========================================================
-   FOOTER
-========================================================= */
-
-footer {
-    text-align: center;
-
-    padding: 0 20px 50px;
-
-    color: #947484;
-
-    font-size: 11px;
-
-    letter-spacing: 1px;
-
-    position: relative;
-
-    z-index: 2;
-}
-
-.footer-heart {
-    color: #ff5b91;
-
-    font-size: 18px;
-
-    display: block;
-
-    margin-bottom: 10px;
-}
-
-/* =========================================================
-   FALLING HEARTS
-========================================================= */
-
-.falling-heart {
-    position: fixed;
-
-    top: -50px;
-
-    pointer-events: none;
-
-    z-index: 1;
-
-    animation:
-        fall linear forwards;
-
-    filter:
-        drop-shadow(
-            0 0 8px
-            rgba(255,80,140,.5)
-        );
-}
-
-@keyframes fall {
-
-    0% {
-        transform:
-            translateY(-50px)
-            rotate(0deg)
-            scale(.7);
-
-        opacity: 0;
-    }
-
-    10% {
-        opacity: .9;
-    }
-
-    90% {
-        opacity: .5;
-    }
-
-    100% {
-        transform:
-            translateY(110vh)
-            rotate(360deg)
-            scale(1.1);
-
-        opacity: 0;
-    }
-
-}
-
-/* =========================================================
-   FLASH
-========================================================= */
-
-.flash {
-    position: fixed;
-
-    inset: 0;
-
-    background:
-        radial-gradient(
-            circle,
-            rgba(255,100,160,.35),
-            transparent 60%
-        );
-
-    opacity: 0;
-
-    pointer-events: none;
-
-    z-index: 100;
-
-    transition: opacity .5s;
-}
-
-.flash.active {
-    opacity: 1;
-}
-
-/* =========================================================
-   MOBILE
-========================================================= */
-
-@media(max-width:700px) {
-
-    .topbar {
-        padding-top: 18px;
-    }
-
-    .hero {
-        min-height: 85vh;
-
-        padding-top: 20px;
-    }
-
-    .date-panel {
-        flex-direction: column;
-
-        padding: 10px;
-    }
-
-    .date-panel input {
-        text-align: center;
-
-        padding: 14px;
-    }
-
-    .open-btn {
-        height: 50px;
-    }
-
-    .envelope-stage {
-        min-height: 560px;
-    }
-
-    .envelope {
-        height: 330px;
-    }
-
-    .paper {
-        height: 300px;
-
-        padding:
-            28px 25px;
-    }
-
-    .paper::before {
-        inset: 10px;
-    }
-
-    .paper-message {
-        font-size: 18px;
-
-        line-height: 1.55;
-    }
-
-    .envelope.open .paper {
-        transform:
-            translateY(-170px)
-            translateZ(50px);
-    }
-
-    .envelope.open {
-        transform:
-            translateY(130px);
-    }
-
-    .flap::after {
-        font-size: 38px;
-    }
-
-    .section-title {
-        margin-bottom: 20px;
-    }
-
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+ --bg:#080b0d; --panel:#111719; --panel2:#182120;
+ --line:#293735; --green:#b8ff35; --text:#f3f7f4; --muted:#879791;
+}
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;background:
+ radial-gradient(ellipse at 15% 0%,#17291b 0,transparent 38%),var(--bg);
+ color:var(--text);font-family:'DM Sans',sans-serif
+}
+button,input{font:inherit}
+button{cursor:pointer;transition:.2s}
+button:hover{filter:brightness(1.1);box-shadow:0 0 18px #b8ff3520}
+.hidden{display:none!important}
+#login{min-height:100vh;display:grid;place-items:center;padding:20px}
+.login-card{
+ width:min(430px,100%);padding:32px;background:linear-gradient(145deg,#141d1e,#0e1314);
+ border:1px solid #34413c;border-radius:25px;box-shadow:0 25px 90px #0008;
+ animation:rise .5s ease
+}
+.logo{font:700 25px 'Space Grotesk',sans-serif;letter-spacing:-1px}
+.logo b{color:var(--green)}
+.mark{display:inline-grid;place-items:center;background:var(--green);color:#101607;
+ width:43px;height:43px;border-radius:14px;margin-right:9px}
+.eyebrow{font-size:10px;letter-spacing:2px;color:var(--green);font-weight:700;margin-top:28px}
+h1{font:700 38px/1.12 'Space Grotesk',sans-serif;letter-spacing:-1.5px;margin:18px 0 12px}
+h1 span{color:var(--green)}
+p{color:var(--muted);line-height:1.7;font-size:14px}
+.field{width:100%;padding:14px 15px;background:#080d0e;border:1px solid #33413d;
+ border-radius:12px;color:white;outline:none;margin:10px 0}
+.field:focus{border-color:var(--green);box-shadow:0 0 0 3px #b8ff3518}
+.btn{border:0;border-radius:12px;background:var(--green);color:#101607;font-weight:800;padding:13px 16px}
+.wide{width:100%;margin-top:8px}
+#app{height:100dvh;padding:16px}
+.layout{height:100%;max-width:1450px;margin:auto;display:grid;grid-template-columns:300px minmax(0,1fr);
+ border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--bg);animation:rise .4s}
+.sidebar{display:flex;flex-direction:column;min-width:0;background:#101617;border-right:1px solid var(--line)}
+.side-head{padding:20px;border-bottom:1px solid var(--line)}
+.status{font-size:12px;color:var(--muted);margin-top:17px}
+.dot{display:inline-block;width:7px;height:7px;background:var(--green);border-radius:50%;box-shadow:0 0 9px var(--green);margin-right:6px}
+.actions{display:flex;gap:8px;margin-top:16px}
+.actions button{flex:1;border-radius:10px;padding:11px 5px;border:1px solid #35423e;background:#192221;color:white;font-size:12px}
+.actions .btn{background:var(--green);color:#101607;border-color:var(--green)}
+.search{margin:14px 12px;background:#192221;border:1px solid transparent;border-radius:10px;padding:12px;color:white;outline:none}
+.search:focus{border-color:var(--green)}
+.group-list{flex:1;overflow:auto;padding:0 9px}
+.group{padding:12px;display:flex;gap:11px;align-items:center;border:1px solid transparent;border-radius:12px;margin-bottom:5px;cursor:pointer}
+.group:hover,.group.active{background:#1b2921;border-color:#3a5030}
+.avatar{width:42px;height:42px;display:grid;place-items:center;flex:none;background:#26382a;border-radius:13px;color:var(--green);font-weight:800}
+.group-name{font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.me{padding:15px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.me button{float:right;background:transparent;border:0;color:var(--green)}
+.main{display:flex;flex-direction:column;min-width:0;background:radial-gradient(ellipse at 80% 0%,#15231a,transparent 40%),#0b1011}
+.chat-head{display:flex;align-items:center;gap:12px;padding:17px 22px;border-bottom:1px solid var(--line);background:#0d1314cc}
+.chat-head h2{font:700 17px 'Space Grotesk',sans-serif;margin:0 0 5px}
+.chat-head small{color:var(--muted)}
+.messages{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:13px}
+.empty{margin:auto;text-align:center;color:var(--muted);line-height:1.8}
+.empty strong{display:block;color:var(--green);font-size:38px;text-shadow:0 0 22px #b8ff3540}
+.message{max-width:min(75%,540px);align-self:flex-start;animation:rise .2s}
+.message.mine{align-self:flex-end}
+.sender{font-size:11px;color:var(--green);margin:0 0 5px 4px}
+.bubble{padding:12px 14px;background:#172120;border:1px solid #2b3936;border-radius:5px 15px 15px 15px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;font-size:13px}
+.mine .bubble{background:#20301f;border-color:#3b5030;border-radius:15px 5px 15px 15px}
+.time{font-size:10px;color:var(--muted);text-align:right;margin-top:6px}
+.composer{display:flex;gap:9px;padding:14px;border-top:1px solid var(--line);background:#0d1314}
+.composer input{flex:1;min-width:0;background:#172020;border:1px solid #2b3937;border-radius:12px;padding:13px;color:white;outline:none}
+.composer input:focus{border-color:var(--green)}
+.composer button{border:0;background:var(--green);color:#101607;font-weight:800;border-radius:12px;padding:0 18px}
+.notice{font-size:10px;color:#62716b;margin:0 17px 13px}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);padding:12px 18px;border-radius:12px;background:var(--green);color:#101607;font-weight:800;display:none;z-index:10;max-width:90%}
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){
+ #app{padding:0}.layout{border:0;border-radius:0;grid-template-columns:1fr}
+ .sidebar{height:100dvh}.main{display:none}
+ .layout.chat-open .sidebar{display:none}
+ .layout.chat-open .main{display:flex;height:100dvh}
+ .side-head{padding:16px}.chat-head{padding:13px}
+ .messages{padding:15px 10px}.message{max-width:90%}
+ .composer{padding:10px}.composer button{padding:0 13px}
+ .login-card{padding:26px}
 }
-
 </style>
 </head>
-
 <body>
-
-<!-- BACKGROUND -->
-<div class="glow one"></div>
-<div class="glow two"></div>
-<div class="glow three"></div>
-
-<div class="stars" id="stars"></div>
-
-<div class="flash" id="flash"></div>
-
-
-<!-- =====================================================
-     TOP BAR
-===================================================== -->
-
-<header class="topbar">
-
-    <div class="logo">
-
-        <div class="logo-heart">
-            ♥
-        </div>
-
-        <span>Rika Hanifatul Rofia</span>
-
-    </div>
-
-    <button
-        class="music-btn"
-        id="musicButton"
-        onclick="toggleMusic()"
-        title="Musik"
-    >
-        ♫
-    </button>
-
-</header>
-
-
-<!-- =====================================================
-     HERO
-===================================================== -->
-
-<section class="hero">
-
-    <div class="eyebrow">
-        A Little Something For You
-    </div>
-
-    <h1>
-       Oktober
-    </h1>
-
-    <p class="hero-subtitle">
-       You are the best woman I have ever met. ❤️
-    </p>
-
-
-    <!-- DATE -->
-
-    <div class="date-panel">
-
-        <input
-            type="date"
-            id="tanggal"
-            min="2026-10-01"
-            max="2026-10-31"
-            value="2026-10-01"
-        >
-
-        <button
-            class="open-btn"
-            onclick="bukaSurat()"
-        >
-            Buka Surat
-        </button>
-
-    </div>
-
-
-    <div class="scroll">
-        ↓ Scroll untuk membuka surat
-    </div>
-
+<section id="login">
+ <div class="login-card">
+  <div class="logo"><span class="mark">B</span>Bahrul<b>Chat</b></div>
+  <div class="eyebrow">PRIVATE SPACE · CONNECTED</div>
+  <h1>Chat your way.<br><span>Stay connected.</span></h1>
+  <p>Ruang ngobrol modern untuk kamu dan teman-teman. Buat grup, bagikan kode, lalu mulai percakapan.</p>
+  <input id="loginName" class="field" maxlength="30" placeholder="Masukkan nama kamu">
+  <button class="btn wide" onclick="login()">Masuk ke BahrulChat ↗</button>
+ </div>
 </section>
 
-
-<!-- =====================================================
-     LETTER
-===================================================== -->
-
-<section class="letter-section">
-
-    <div class="section-title">
-
-        <small>
-            October Letters
-        </small>
-
-        <h2>
-            Sebuah Surat Untukmu
-        </h2>
-
+<section id="app" class="hidden">
+ <div id="layout" class="layout">
+  <aside class="sidebar">
+   <div class="side-head">
+    <div class="logo"><span class="mark">B</span>Bahrul<b>Chat</b></div>
+    <div class="status"><span class="dot"></span>Online space</div>
+    <div class="actions">
+     <button class="btn" onclick="createGroup()">＋ Buat grup</button>
+     <button onclick="joinGroup()">↗ Gabung</button>
     </div>
-
-
-    <div class="envelope-stage">
-
-        <div class="floor-glow"></div>
-
-
-        <div
-            class="envelope"
-            id="envelope"
-        >
-
-            <!-- PAPER -->
-
-            <article class="paper">
-
-                <h2>
-                    Untukmu
-                </h2>
-
-                <div
-                    class="paper-date"
-                    id="dateTitle"
-                >
-                    1 Oktober 2026
-                </div>
-
-                <p
-                    class="paper-message"
-                    id="message"
-                >
-                    Aku tidak tahu sejak kapan kehadiranmu
-                    menjadi begitu berarti. Yang aku tahu,
-                    ada bagian dari hari-hariku yang terasa
-                    berbeda ketika tidak ada kabar darimu. ❤️
-                </p>
-
-            </article>
-
-
-            <!-- ENVELOPE -->
-
-            <div class="envelope-body">
-
-                <div class="envelope-left"></div>
-
-                <div class="envelope-right"></div>
-
-                <div class="envelope-bottom"></div>
-
-            </div>
-
-
-            <!-- FLAP -->
-
-            <div class="flap"></div>
-
-        </div>
-
-    </div>
-
-
-    <!-- CONTROLS -->
-
-    <div class="controls">
-
-        <button
-            class="control-btn"
-            onclick="bukaSurat()"
-        >
-            💌 Buka Lagi
-        </button>
-
-        <button
-            class="control-btn"
-            onclick="tutupSurat()"
-        >
-            ✨ Tutup Surat
-        </button>
-
-       
-    </div>
-
+   </div>
+   <input id="search" class="search" placeholder="⌕ Cari grup..." oninput="renderGroups()">
+   <div id="groupList" class="group-list"></div>
+   <div class="me"><span class="dot"></span><span id="userName"></span><button onclick="logout()">Keluar ↗</button></div>
+  </aside>
+  <main class="main">
+   <header class="chat-head">
+    <button class="btn" onclick="backGroups()">←</button>
+    <div class="avatar" id="headAvatar">B</div>
+    <div><h2 id="headName">Pilih grup</h2><small id="headSub">Pilih grup untuk mulai chat</small></div>
+   </header>
+   <div id="messages" class="messages"><div class="empty"><strong>✳</strong>Selamat datang di ruangmu.<br>Pilih grup atau buat grup baru untuk mulai.</div></div>
+   <form class="composer" onsubmit="sendMessage(event)">
+    <input id="messageInput" maxlength="3000" placeholder="Tulis pesan..." autocomplete="off">
+    <button>Kirim ↗</button>
+   </form>
+   <div class="notice">ENTER UNTUK MENGIRIM · DARK PREMIUM</div>
+  </main>
+ </div>
 </section>
-
-
-<!-- =====================================================
-     QUOTE
-===================================================== -->
-
-<section class="quote-section">
-
-    <div class="quote-card">
-
-        <span>“</span>
-
-        <p>
-            Beberapa orang hadir bukan untuk membuat
-            hidup menjadi sempurna, tetapi untuk membuat
-            perjalanan hidup terasa lebih berarti.
-        </p>
-
-    </div>
-
-</section>
-
-
-<!-- FOOTER -->
-
-<footer>
-
-    <span class="footer-heart">
-        ♥
-    </span>
-
-    Dibuat dengan penuh perhatian.
-
-    <br>
-
-    Oktober 2026
-
-</footer>
-
+<div id="toast"></div>
 
 <script>
-
-/* =========================================================
-   31 PESAN
-========================================================= */
-
-const pesan = {
-
-1:
-"Aku tidak tahu sejak kapan kehadiranmu menjadi begitu berarti. Yang aku tahu, ada bagian dari hari-hariku yang terasa berbeda ketika tidak ada kabar darimu. ❤️",
-
-2:
-"Terima kasih sudah datang ke dalam hidupku. Mungkin kamu tidak menyadari betapa banyak hal kecil tentangmu yang diam-diam membuatku bahagia.",
-
-3:
-"Aku tidak pernah meminta seseorang yang sempurna. Aku hanya ingin seseorang yang mau tetap tinggal, saling memahami, dan bersama-sama belajar menjadi lebih baik. 🤍",
-
-4:
-"Kalau suatu hari kamu merasa tidak cukup baik, ingatlah bahwa ada seseorang yang melihat banyak hal indah dalam dirimu yang mungkin belum bisa kamu lihat sendiri.",
-
-5:
-"Aku mungkin tidak selalu pandai menunjukkan perasaan, tetapi percayalah, perhatian kecil darimu sering kali menjadi bagian paling indah dari hariku. 💕",
-
-6:
-"Kalau suatu hari dunia terasa terlalu berat untukmu, semoga kamu ingat bahwa kamu tidak harus selalu kuat. Beristirahatlah, tarik napas, dan lanjutkan ketika kamu sudah siap.",
-
-7:
-"Aku tidak bisa menjanjikan bahwa semua hari kita akan selalu mudah. Tapi aku berharap, ketika hari sulit datang, kita tetap memilih untuk saling memahami daripada saling meninggalkan.",
-
-8:
-"Ada banyak hal yang tidak pernah aku katakan. Bukan karena tidak penting, tetapi terkadang perasaan yang paling dalam justru paling sulit untuk diucapkan. ❤️",
-
-9:
-"Aku bersyukur pernah menemukan seseorang yang bisa membuat hal sederhana terasa begitu berarti. Bahkan percakapan kecil denganmu bisa menjadi kenangan yang aku simpan lama.",
-
-10:
-"Jika suatu hari kamu bertanya apa yang membuatku bertahan, mungkin jawabannya adalah kenangan tentang semua kebaikan yang pernah kita bagi bersama.",
-
-11:
-"Aku tidak ingin menjadi alasan kamu kehilangan dirimu sendiri. Aku ingin menjadi seseorang yang mendukungmu untuk terus tumbuh menjadi versi terbaik dari dirimu.",
-
-12:
-"Semoga ketika kamu melihat kembali perjalanan hidupmu nanti, kamu menemukan bahwa pernah ada seseorang yang benar-benar menghargai kehadiranmu. 💖",
-
-13:
-"Aku tahu kita sama-sama punya kekurangan. Tapi mungkin justru dari situlah kita belajar bahwa mencintai bukan tentang mencari kesempurnaan, melainkan belajar menerima dan memahami.",
-
-14:
-"Terima kasih karena pernah membuatku merasakan bahwa ada seseorang yang peduli. Sekecil apa pun perhatianmu, bagiku itu tetap punya tempat yang istimewa.",
-
-15:
-"Setengah bulan sudah berlalu. Dan kalau ada satu hal yang ingin aku katakan, itu adalah: terima kasih sudah bertahan sejauh ini, dan terima kasih sudah menjadi dirimu sendiri. 🤍",
-
-16:
-"Aku berharap kamu selalu menemukan alasan untuk tersenyum, bahkan ketika aku tidak berada di dekatmu. Karena kebahagiaanmu tetap menjadi sesuatu yang ingin aku lihat.",
-
-17:
-"Jangan pernah merasa bahwa perjuanganmu sia-sia. Mungkin sekarang kamu belum melihat hasilnya, tetapi suatu hari nanti kamu akan bangga karena memilih untuk tidak menyerah.",
-
-18:
-"Kamu mungkin hanya seseorang bagi banyak orang, tetapi bagi seseorang yang benar-benar menghargaimu, kehadiranmu bisa berarti jauh lebih besar daripada yang kamu bayangkan.",
-
-19:
-"Aku tidak tahu apa yang akan terjadi di masa depan. Tapi untuk hari ini, aku hanya ingin menghargai keberadaanmu dan semua hal baik yang pernah kita lalui bersama.",
-
-20:
-"Jika hubungan ini adalah sebuah perjalanan, aku tidak berharap semuanya selalu sempurna. Aku hanya berharap kita tidak mudah menyerah ketika perjalanan itu mulai terasa sulit.",
-
-21:
-"Jangan terlalu keras kepada dirimu sendiri. Kamu sudah melewati banyak hal yang tidak semua orang tahu. Dan sampai hari ini, kamu masih berdiri. Itu sudah luar biasa.",
-
-22:
-"Ada beberapa orang yang kehadirannya tidak bisa digantikan begitu saja. Bukan karena mereka sempurna, tetapi karena kenangan yang mereka tinggalkan terlalu berarti untuk dilupakan.",
-
-23:
-"Kalau suatu saat kamu merasa tidak dicintai atau tidak dihargai, semoga kamu ingat bahwa keberadaanmu tetap memiliki arti. Kamu berharga, bahkan ketika kamu sedang meragukan dirimu sendiri.",
-
-24:
-"Aku tidak membutuhkan banyak hal untuk merasa bahagia. Terkadang cukup mengetahui bahwa kamu baik-baik saja sudah bisa membuat hatiku merasa tenang.",
-
-25:
-"Mungkin aku tidak selalu mengatakan betapa berartinya kamu. Tetapi percayalah, ada banyak doa baik yang diam-diam aku harapkan untuk perjalanan hidupmu.",
-
-26:
-"Kalau nanti kita menghadapi perbedaan, semoga kita memilih berbicara daripada diam, memahami daripada menyalahkan, dan memperbaiki daripada menyerah.",
-
-27:
-"Aku ingin kamu tahu satu hal: kamu tidak harus menjadi sempurna untuk layak dihargai. Jadilah dirimu sendiri, karena menjadi dirimu sendiri sudah cukup.",
-
-28:
-"Semoga apa pun yang terjadi nanti, kita pernah menjadi alasan satu sama lain untuk tersenyum, belajar, dan menjadi manusia yang lebih baik. ❤️",
-
-29:
-"Terima kasih untuk semua momen yang mungkin terlihat sederhana, tetapi diam-diam menjadi bagian dari kenangan yang paling aku hargai.",
-
-30:
-"Oktober hampir berakhir. Kalau bulan ini mengajarkan satu hal kepadaku, mungkin itu adalah bahwa waktu terus berjalan, tetapi beberapa orang dan kenangan tetap memiliki tempat khusus di hati.",
-
-31:
-"Dan untuk hari terakhir Oktober, aku hanya ingin mengatakan: terima kasih sudah hadir dalam hidupku. Aku tidak tahu bagaimana cerita kita akan berjalan ke depan, tetapi aku akan selalu menghargai setiap tawa, setiap percakapan, setiap perhatian, dan setiap kenangan yang pernah kita punya. Jika suatu hari nanti kita melihat kembali semua ini, semoga yang tersisa bukan penyesalan, melainkan senyuman karena pernah saling berarti. ❤️"
-
-};
-
-
-/* =========================================================
-   ELEMENT
-========================================================= */
-
-const envelope =
-    document.getElementById("envelope");
-
-const tanggal =
-    document.getElementById("tanggal");
-
-const message =
-    document.getElementById("message");
-
-const dateTitle =
-    document.getElementById("dateTitle");
-
-const flash =
-    document.getElementById("flash");
-
-
-/* =========================================================
-   OPEN LETTER
-========================================================= */
-
-function bukaSurat() {
-
-    if (!tanggal.value) {
-
-        alert(
-            "Pilih tanggal terlebih dahulu ❤️"
-        );
-
-        return;
-    }
-
-
-    const date =
-        new Date(
-            tanggal.value + "T00:00:00"
-        );
-
-
-    const month =
-        date.getMonth();
-
-    const day =
-        date.getDate();
-
-
-    if (month !== 9) {
-
-        alert(
-            "Pilih tanggal di bulan Oktober 2026 ❤️"
-        );
-
-        return;
-    }
-
-
-    dateTitle.innerText =
-        day + " Oktober 2026";
-
-
-    message.innerText =
-        pesan[day];
-
-
-    envelope.classList.remove("open");
-
-
-    setTimeout(() => {
-
-        envelope.classList.add("open");
-
-        efekFlash();
-
-        ledakanHati();
-
-    }, 100);
-
-
-    setTimeout(() => {
-
-        envelope.scrollIntoView({
-            behavior: "smooth",
-            block: "center"
-        });
-
-    }, 500);
-
+let userName='',groups=[],active=null,timer=null,lastSig='';
+const $=id=>document.getElementById(id);
+function toast(t){$('toast').textContent=t;$('toast').style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('toast').style.display='none',2800)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function api(action,data={}){
+ const fd=new FormData();fd.append('action',action);
+ for(const k in data)fd.append(k,data[k]);
+ const r=await fetch('index.php',{method:'POST',body:fd});
+ const j=await r.json();
+ if(!j.ok)throw Error(j.error||'Terjadi kesalahan');
+ return j;
 }
-
-
-/* =========================================================
-   CLOSE LETTER
-========================================================= */
-
-function tutupSurat() {
-
-    envelope.classList.remove("open");
-
+async function login(){
+ const name=$('loginName').value.trim();
+ if(!name)return toast('Masukkan nama kamu.');
+ try{
+  const j=await api('login',{name});userName=j.name;
+  $('login').classList.add('hidden');$('app').classList.remove('hidden');
+  $('userName').textContent=userName;loadGroups();
+ }catch(e){toast(e.message)}
 }
-
-
-/* =========================================================
-   RANDOM LETTER
-========================================================= */
-
-function suratAcak() {
-
-    const day =
-        Math.floor(
-            Math.random() * 31
-        ) + 1;
-
-
-    tanggal.value =
-        "2026-10-" +
-        String(day).padStart(2, "0");
-
-
-    bukaSurat();
-
+async function logout(){try{await api('logout')}catch(e){}location.reload()}
+async function loadGroups(){try{const j=await api('groups');groups=j.groups;renderGroups()}catch(e){toast(e.message)}}
+function renderGroups(){
+ const q=$('search').value.toLowerCase();$('groupList').innerHTML='';
+ const list=groups.filter(g=>g.name.toLowerCase().includes(q));
+ if(!list.length){$('groupList').innerHTML='<p style="padding:15px;color:#879791;font-size:13px">Belum ada grup. Buat grup atau gabung dengan kode.</p>';return}
+ list.forEach(g=>{
+  const d=document.createElement('div');d.className='group'+(active&&active.id==g.id?' active':'');
+  d.innerHTML='<div class="avatar">'+esc(g.name[0].toUpperCase())+'</div><div class="group-name">'+esc(g.name)+'</div>';
+  d.onclick=()=>openGroup(g);$('groupList').appendChild(d);
+ });
 }
-
-
-/* =========================================================
-   FLASH EFFECT
-========================================================= */
-
-function efekFlash() {
-
-    flash.classList.add("active");
-
-    setTimeout(() => {
-
-        flash.classList.remove("active");
-
-    }, 500);
-
+async function createGroup(){
+ const name=prompt('Masukkan nama grup:');if(!name||!name.trim())return;
+ try{
+  const j=await api('create',{name:name.trim()});
+  toast('Grup berhasil dibuat! Kode: '+j.code);await loadGroups();
+  const g=groups.find(x=>x.code===j.code);if(g)openGroup(g);
+ }catch(e){toast(e.message)}
 }
-
-
-/* =========================================================
-   HEART EXPLOSION
-========================================================= */
-
-function ledakanHati() {
-
-    for (
-        let i = 0;
-        i < 18;
-        i++
-    ) {
-
-        const heart =
-            document.createElement("div");
-
-        heart.className =
-            "falling-heart";
-
-        heart.innerText =
-            [
-                "❤️",
-                "💖",
-                "💕",
-                "💗",
-                "💘"
-            ][
-                Math.floor(
-                    Math.random() * 5
-                )
-            ];
-
-
-        heart.style.left =
-            (40 + Math.random() * 20) +
-            "vw";
-
-
-        heart.style.top =
-            (30 + Math.random() * 20) +
-            "vh";
-
-
-        heart.style.fontSize =
-            (15 + Math.random() * 20) +
-            "px";
-
-
-        heart.style.animationDuration =
-            (3 + Math.random() * 4) +
-            "s";
-
-
-        document.body.appendChild(
-            heart
-        );
-
-
-        setTimeout(() => {
-
-            heart.remove();
-
-        }, 7000);
-
-    }
-
+async function joinGroup(){
+ const code=prompt('Masukkan kode grup:');if(!code)return;
+ try{await api('join',{code:code.trim()});toast('Berhasil bergabung!');await loadGroups()}
+ catch(e){toast(e.message)}
 }
-
-
-/* =========================================================
-   FALLING HEARTS
-========================================================= */
-
-function buatHati() {
-
-    const heart =
-        document.createElement("div");
-
-    heart.className =
-        "falling-heart";
-
-
-    const daftar = [
-        "❤️",
-        "💕",
-        "💗",
-        "💖",
-        "💘",
-        "🤍"
-    ];
-
-
-    heart.innerText =
-        daftar[
-            Math.floor(
-                Math.random() *
-                daftar.length
-            )
-        ];
-
-
-    heart.style.left =
-        Math.random() * 100 +
-        "vw";
-
-
-    heart.style.fontSize =
-        (10 + Math.random() * 17) +
-        "px";
-
-
-    heart.style.animationDuration =
-        (6 + Math.random() * 7) +
-        "s";
-
-
-    heart.style.opacity =
-        .2 + Math.random() * .7;
-
-
-    document.body.appendChild(
-        heart
-    );
-
-
-    setTimeout(() => {
-
-        heart.remove();
-
-    }, 14000);
-
+async function openGroup(g){
+ active=g;$('layout').classList.add('chat-open');
+ $('headName').textContent=g.name;$('headSub').textContent='Kode undangan: '+g.code;
+ $('headAvatar').textContent=g.name[0].toUpperCase();lastSig='';
+ renderGroups();await loadMessages(true);
+ clearInterval(timer);timer=setInterval(()=>loadMessages(false),2500);
 }
-
-
-setInterval(
-    buatHati,
-    750
-);
-
-
-/* =========================================================
-   CREATE STARS
-========================================================= */
-
-const stars =
-    document.getElementById("stars");
-
-
-for (
-    let i = 0;
-    i < 100;
-    i++
-) {
-
-    const star =
-        document.createElement("div");
-
-    star.className =
-        "star";
-
-
-    star.style.left =
-        Math.random() * 100 +
-        "%";
-
-
-    star.style.top =
-        Math.random() * 100 +
-        "%";
-
-
-    star.style.animationDelay =
-        Math.random() * 4 +
-        "s";
-
-
-    star.style.opacity =
-        Math.random();
-
-
-    stars.appendChild(
-        star
-    );
-
+function backGroups(){$('layout').classList.remove('chat-open');clearInterval(timer)}
+async function loadMessages(force){
+ if(!active)return;
+ try{
+  const j=await api('messages',{group_id:active.id});
+  const sig=j.messages.map(m=>m.id).join(',');
+  if(!force&&sig===lastSig)return;
+  const box=$('messages');box.innerHTML='';
+  if(!j.messages.length)box.innerHTML='<div class="empty"><strong>✳</strong>Awal percakapan baru.<br>Jadilah yang pertama mengirim pesan.</div>';
+  j.messages.forEach(m=>{
+   const mine=Number(m.user_id)===Number(<?php echo json_encode($_SESSION['uid']??0); ?>);
+   const d=document.createElement('div');d.className='message'+(mine?' mine':'');
+   d.innerHTML=(mine?'':'<div class="sender">'+esc(m.name)+'</div>')+
+    '<div class="bubble">'+esc(m.message)+'<div class="time">'+esc(m.waktu)+'</div></div>';
+   box.appendChild(d);
+  });
+  box.scrollTop=box.scrollHeight;lastSig=sig;loadGroups();
+ }catch(e){console.log(e)}
 }
-
-
-/* =========================================================
-   MUSIC
-========================================================= */
-
-let audioContext = null;
-
-let musicPlaying = false;
-
-let musicTimer = null;
-
-
-function toggleMusic() {
-
-    if (musicPlaying) {
-
-        stopMusic();
-
-    } else {
-
-        startMusic();
-
-    }
-
+async function sendMessage(e){
+ e.preventDefault();if(!active)return toast('Pilih grup terlebih dahulu.');
+ const input=$('messageInput'),message=input.value.trim();if(!message)return;
+ try{await api('send',{group_id:active.id,message});input.value='';await loadMessages(true)}
+ catch(err){toast(err.message)}
 }
-
-
-function startMusic() {
-
-    audioContext =
-        new (
-            window.AudioContext ||
-            window.webkitAudioContext
-        )();
-
-
-    musicPlaying = true;
-
-
-    document.getElementById(
-        "musicButton"
-    ).innerText = "🔊";
-
-
-    playMelody();
-
-}
-
-
-function playMelody() {
-
-    if (!musicPlaying)
-        return;
-
-
-    const notes = [
-        261.63,
-        329.63,
-        392.00,
-        523.25,
-        392.00,
-        329.63,
-        293.66,
-        349.23,
-        440.00,
-        523.25,
-        440.00,
-        349.23
-    ];
-
-
-    notes.forEach(
-        (frequency, index) => {
-
-            const osc =
-                audioContext.createOscillator();
-
-            const gain =
-                audioContext.createGain();
-
-
-            osc.type =
-                "sine";
-
-
-            osc.frequency.value =
-                frequency;
-
-
-            osc.connect(gain);
-
-            gain.connect(
-                audioContext.destination
-            );
-
-
-            const start =
-                audioContext.currentTime +
-                index * .45;
-
-
-            osc.start(start);
-
-
-            gain.gain.setValueAtTime(
-                .0001,
-                start
-            );
-
-
-            gain.gain.exponentialRampToValueAtTime(
-                .055,
-                start + .04
-            );
-
-
-            gain.gain.exponentialRampToValueAtTime(
-                .0001,
-                start + .40
-            );
-
-
-            osc.stop(
-                start + .45
-            );
-
-        }
-    );
-
-
-    musicTimer =
-        setTimeout(
-            playMelody,
-            notes.length * 450
-        );
-
-}
-
-
-function stopMusic() {
-
-    musicPlaying = false;
-
-
-    clearTimeout(
-        musicTimer
-    );
-
-
-    if (audioContext) {
-
-        audioContext.close();
-
-        audioContext = null;
-
-    }
-
-
-    document.getElementById(
-        "musicButton"
-    ).innerText = "♫";
-
-}
-
-
-/* =========================================================
-   KEYBOARD SHORTCUT
-========================================================= */
-
-document.addEventListener(
-    "keydown",
-    function(event) {
-
-        if (
-            event.key === "Enter"
-        ) {
-
-            bukaSurat();
-
-        }
-
-    }
-);
-
+$('loginName').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+(async()=>{try{const j=await api('me');if(j.name){userName=j.name;$('login').classList.add('hidden');$('app').classList.remove('hidden');$('userName').textContent=userName;loadGroups()}}catch(e){}})();
 </script>
-
 </body>
 </html>
-```
