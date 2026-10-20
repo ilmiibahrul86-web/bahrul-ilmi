@@ -1,12 +1,18 @@
 {
-  "background_color": "#ffffff",
-  "dir": "ltr",
+  "id": "./",
+  "name": "BahrulChat",
+  "short_name": "BahrulChat",
+  "description": "Aplikasi chat online untuk membuat grup dan mengobrol bersama teman.",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "name": "bahrulchat",
-  "orientation": "any",
-  "scope": "/",
-  "short_name": "bahrulchat",
-  "start_url": "/",
-  "theme_color": "#00c853",
-  "description": "Aplikasi chat online untuk membuat grup dan mengobrol bersama teman."
+  "background_color": "#020b16",
+  "theme_color": "#00ed8a",
+  "icons": [
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }
