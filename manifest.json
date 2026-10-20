@@ -1,0 +1,12 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "bahrulchat",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "bahrulchat",
+  "start_url": "/",
+  "theme_color": "#00c853",
+  "description": "Aplikasi chat online untuk membuat grup dan mengobrol bersama teman."
+}
